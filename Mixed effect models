@@ -1,0 +1,57 @@
+# Set REML flag to FALSE 
+use_reml_flag = FALSE
+
+## sets a flag to determine whether Restricted Maximum Likelihood (REML) should be used in the mixed-effects model.
+#REML is used to estimate the variance components in linear mixed-effects models, and setting this flag to FALSE uses Maximum Likelihood Estimation (MLE) instead.
+
+# Install necessary package
+devtools::install_github("kaskr/TMB_contrib_R/TMBhelper")
+
+######################
+# Generate Data
+
+
+# Generate predictor values
+group_indices = rep(1:10, each=10)
+random_group_effects = rnorm(length(unique(group_indices)), mean=0, sd=1)
+intercept = 0
+
+# Generate response variable
+response_values = random_group_effects[group_indices] + intercept + rnorm(length(group_indices), mean=0, sd=1)
+
+######################
+# Perform Analysis using lme4
+
+
+library(lme4)
+mixed_model = lmer(response_values ~ 1|factor(group_indices), REML=use_reml_flag)
+
+######################
+# Implement Shrinkage Estimator
+
+
+# Manually implement shrinkage estimator
+overall_mean = mean(response_values)
+group_means = tapply(response_values, INDEX=group_indices, FUN=mean)
+group_sd = sd(group_means)
+response_sd = sd(response_values - group_means[group_indices])
+shrinkage_weights = c(1/group_sd^2, length(response_values)/length(unique(group_indices))/response_sd^2)
+shrinkage_weights = shrinkage_weights / sum(shrinkage_weights)
+
+# Compute predictions using shrinkage estimator
+adjusted_group_means = (overall_mean * shrinkage_weights[1] + group_means * shrinkage_weights[2])
+
+######################
+# Compare Results
+
+
+# Global mean estimates comparison
+c(fixef(mixed_model), overall_mean)
+
+# Random effect comparisons
+cbind("True Values" = random_group_effects, 
+      "Lme4 Estimates" = ranef(mixed_model)[['factor(group_indices)']], 
+      "Shrinkage Estimator" = group_means - overall_mean)
+
+# Variance estimates
+summary(mixed_model)
