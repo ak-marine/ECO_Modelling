@@ -4,8 +4,6 @@ use_reml_flag = FALSE
 ## sets a flag to determine whether Restricted Maximum Likelihood (REML) should be used in the mixed-effects model.
 #REML is used to estimate the variance components in linear mixed-effects models, and setting this flag to FALSE uses Maximum Likelihood Estimation (MLE) instead.
 
-# Install necessary package
-devtools::install_github("kaskr/TMB_contrib_R/TMBhelper")
 
 ######################
 # Generate Data
