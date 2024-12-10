@@ -4,7 +4,7 @@ library(RandomFields)
 
 #########################
 # Simulation example
-#########################
+
 
 # Source
 source("Sim_Function.R")
@@ -78,7 +78,7 @@ eigen_estimated = eigen(inla_output$summary$latent$mean %*% t(inla_output$summar
 
 ##########################
 # Real dataset example
-##########################
+
 
 # Load and format data
 load("FishData_Nspecies=15.RData")
