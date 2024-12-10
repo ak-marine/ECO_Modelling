@@ -1,0 +1,118 @@
+# Load libraries
+library(INLA)
+library(RandomFields)
+
+#########################
+# Simulation example
+#########################
+
+# Source
+source("Sim_Function.R")
+
+# Simulation settings
+num_factors_true = 4
+num_species = 8
+num_sites = 150
+
+# Estimation settings
+num_factors_estimate = 3
+
+# Simulate data
+Sim_Data = Sim_Function(n_p=num_species, n_s=num_sites, n_f=num_factors_true)
+Obs_data = Sim_Data[["Obs_data"]]
+Covariate_matrix = Sim_Data[["Covariate_matrix"]]
+Coordinates = Sim_Data[["Coordinates"]]
+
+# Create SPDE mesh
+spatial_mesh = inla.mesh.create(Coordinates)
+spde_model = inla.spde2.matern(spatial_mesh)
+
+# Data
+Model_Data = list("Obs_data" = Obs_data, 
+                  "num_factors" = num_factors_estimate, 
+                  "num_nodes" = spatial_mesh$n, 
+                  "node_indices" = spatial_mesh$idx$loc - 1, 
+                  "Covariate_matrix" = Covariate_matrix, 
+                  "M0" = spde_model$param.inla$M0, 
+                  "M1" = spde_model$param.inla$M1, 
+                  "M2" = spde_model$param.inla$M2)
+
+# Parameters
+Parameters = list("coefficients" = matrix(0, nrow = ncol(Model_Data$Covariate_matrix), ncol = ncol(Model_Data$Obs_data)), 
+                  "loadings" = rep(1, Model_Data$num_factors * ncol(Model_Data$Obs_data) - Model_Data$num_factors * (Model_Data$num_factors - 1) / 2), 
+                  "log_kappa" = log(1), 
+                  "Omega_factor" = matrix(0, nrow = spatial_mesh$n, ncol = Model_Data$num_factors))
+
+# Specify INLA model formula
+model_formula <- Obs_data ~ -1 + f(node_indices, model = spde_model) + Covariate_matrix %*% coefficients  # Example formula, adjust as needed
+
+# Run INLA model
+inla_output <- inla(model_formula, data = Model_Data, family = "poisson", control.predictor = list(compute = TRUE))
+
+# Summarize results
+summary(inla_output)
+
+# Compare with simulated values
+# Loadings matrix
+Sim_Data$Loadings
+inla_output$summary$latent
+
+# Compare covariances
+plot(x = inla_output$summary$latent$mean %*% t(inla_output$summary$latent$mean), 
+     y = Sim_Data$Loadings %*% t(Sim_Data$Loadings), 
+     xlab = "Estimated covariance", ylab = "True covariance")
+abline(a = 0, b = 1, lty = "dotted", lwd = 2)
+
+# Factor predictions
+par(mfrow = c(1, min(num_factors_true, num_factors_estimate)))
+for(factorIndex in 1:min(num_factors_true, num_factors_estimate)){
+  plot(y = inla_output$summary$latent$mean[1:num_sites, factorIndex], 
+       x = Sim_Data$Omega_sf[, factorIndex], 
+       xlab = "True", ylab = "Estimated", 
+       main = paste("Factor", factorIndex))
+}
+
+# Compare eigenvalues for non-matching number of factors
+eigen_true = eigen(Sim_Data$Loadings %*% t(Sim_Data$Loadings))
+eigen_estimated = eigen(inla_output$summary$latent$mean %*% t(inla_output$summary$latent$mean))
+
+##########################
+# Real dataset example
+##########################
+
+# Load and format data
+load("FishData_Nspecies=15.RData")
+FishData = FishData[which(FishData$year == 1995), ]
+SpeciesSet = unique(FishData$species)
+
+# Identify unique locations
+LocationMatch = match(unique(FishData$LocationID), FishData$LocationID)
+Location_coordinates = FishData[LocationMatch, c('longitude', 'latitude')]
+
+# Make mesh
+spatial_mesh = inla.mesh.create(Location_coordinates)
+spde_model = inla.spde2.matern(spatial_mesh)
+
+# Format data frame
+Obs_data = matrix(NA, nrow = length(LocationMatch), ncol = length(SpeciesSet), dimnames = list(NULL, SpeciesSet))
+for(speciesIndex in 1:ncol(Obs_data)){
+  SpeciesData = FishData[which(FishData$species == SpeciesSet[speciesIndex]), ]
+  LocationMatch = match(unique(FishData$LocationID), SpeciesData[, 'LocationID'])
+  Obs_data[, speciesIndex] = round(SpeciesData[LocationMatch, 'catch'])
+}
+
+# Data
+Model_Data_Real = list("Obs_data" = Obs_data, 
+                       "num_factors" = 4, 
+                       "num_nodes" = spatial_mesh$n, 
+                       "node_indices" = spatial_mesh$idx$loc - 1, 
+                       "Covariate_matrix" = matrix(1, nrow = nrow(Obs_data), ncol = 1), 
+                       "M0" = spde_model$param.inla$M0, 
+                       "M1" = spde_model$param.inla$M1, 
+                       "M2" = spde_model$param.inla$M2)
+
+# Run INLA model on real data
+inla_output_real <- inla(model_formula, data = Model_Data_Real, family = "poisson", control.predictor = list(compute = TRUE))
+
+# Summarize results
+summary(inla_output_real)
